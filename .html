@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>公路狂飆：復仇之輪</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 800px;
+            pointer-events: none;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+        .status-bar {
+            background: rgba(0,0,0,0.6);
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid #444;
+        }
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            color: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            border: 2px solid #ff4444;
+            pointer-events: auto;
+            z-index: 1000;
+        }
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, #333 0%, #000 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 100;
+        }
+        .btn {
+            background: #ff4444;
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 30px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+            pointer-events: auto;
+            margin-top: 20px;
+        }
+        .btn:hover {
+            transform: scale(1.1);
+            background: #ff6666;
+        }
+        .controls-hint {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #aaa;
+            text-align: center;
+            line-height: 1.6;
+        }
+        #boost-text {
+            position: absolute;
+            bottom: 25%;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00f2ff;
+            font-size: 40px;
+            font-weight: 900;
+            font-style: italic;
+            display: none;
+            text-shadow: 0 0 20px #00f2ff;
+            pointer-events: none;
+            animation: pulse 0.5s infinite alternate;
+        }
+        @keyframes pulse {
+            from { transform: translateX(-50%) scale(1); opacity: 1; }
+            to { transform: translateX(-50%) scale(1.1); opacity: 0.7; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="start-screen">
+        <h1 class="text-7xl font-black mb-4 tracking-tighter italic text-red-600">ROAD OUTLAW</h1>
+        <p class="text-xl mb-8 text-yellow-500 font-bold italic">敵軍增援已到達！兩下擊殺！</p>
+        <button class="btn" onclick="startGame()">引擎發動</button>
+        <div class="controls-hint">
+            使用 <b>左右方向鍵</b> 操控機車<br>
+            按下 <b>A / D</b> 進行左右近身重擊 (兩下必殺)<br>
+            拾取 <span class="text-green-500 font-bold">醫藥箱</span> 補血 | 拾取 <span class="text-blue-500 font-bold">氮氣</span> 衝撞無敵
+        </div>
+    </div>
+
+    <div id="ui-layer">
+        <div class="status-bar">
+            <div class="text-xs uppercase font-bold text-red-500">耐久度 HP</div>
+            <div class="w-48 h-4 bg-gray-800 rounded-full overflow-hidden mt-1 border border-gray-600">
+                <div id="hp-fill" class="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-300" style="width: 100%"></div>
+            </div>
+        </div>
+        <div class="status-bar text-right">
+            <div class="text-xs uppercase font-bold text-yellow-500">懸賞金 KILLS</div>
+            <div id="score" class="text-3xl font-black italic">0</div>
+        </div>
+    </div>
+
+    <div id="boost-text">NITRO BURNING!!</div>
+
+    <div id="game-over">
+        <h2 class="text-5xl font-black mb-4 text-red-600 italic">WASTED</h2>
+        <p class="mb-2 text-gray-400 uppercase tracking-widest">最終得分</p>
+        <div id="final-score" class="text-6xl font-black text-white mb-8">0</div>
+        <button class="btn" onclick="location.reload()">重新挑戰</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const hpFill = document.getElementById('hp-fill');
+        const scoreElement = document.getElementById('score');
+        const gameOverScreen = document.getElementById('game-over');
+        const finalScoreElement = document.getElementById('final-score');
+        const startScreen = document.getElementById('start-screen');
+        const boostText = document.getElementById('boost-text');
+
+        // 遊戲狀態與設定
+        let gameActive = false;
+        let score = 0;
+        let roadOffset = 0;
+        let baseSpeed = 12;
+        let speed = 12;
+        let isBoosting = false;
+        let boostTimer = 0;
+        
+        // 玩家資料
+        const player = {
+            x: 0,
+            y: 0,
+            width: 30,
+            height: 70,
+            hp: 80, // 再次調高玩家血量以應對更多敵人
+            maxHp: 80,
+            attacking: null,
+            attackTimer: 0
+        };
+
+        let enemies = [];
+        let items = [];
+        let particles = [];
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            player.x = canvas.width / 2;
+            player.y = canvas.height * 0.8;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (e.code === 'KeyA') attack('left');
+            if (e.code === 'KeyD') attack('right');
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function attack(side) {
+            if (!gameActive || isBoosting) return;
+            player.attacking = side;
+            player.attackTimer = 10;
+            
+            enemies.forEach(enemy => {
+                const dx = enemy.x - player.x;
+                const dy = enemy.y - player.y;
+                if (Math.abs(dy) < 85 && Math.abs(dx) < 100) {
+                    if ((side === 'left' && dx < 0) || (side === 'right' && dx > 0)) {
+                        enemy.hp -= 50; 
+                        enemy.stunned = 20; 
+                        createExplosion(enemy.x, enemy.y, '#ff4444', 15);
+                        enemy.vx += (side === 'left' ? -25 : 25);
+                    }
+                }
+            });
+        }
+
+        function createExplosion(x, y, color, count = 10) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x, y,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: (Math.random() - 0.5) * 12,
+                    life: 1.0,
+                    color: color,
+                    size: Math.random() * 5 + 2
+                });
+            }
+        }
+
+        function spawnEnemy() {
+            if (!gameActive) return;
+            const side = Math.random() > 0.5 ? 1 : -1;
+            enemies.push({
+                x: canvas.width / 2 + (side * (100 + Math.random() * 200)),
+                y: -100,
+                vx: 0,
+                hp: 100, 
+                speed: 3 + Math.random() * 5,
+                stunned: 0,
+                aggression: 0.03 + (score / 10000)
+            });
+            // 大幅縮短敵人生產間隔，增加敵人數量
+            let nextSpawn = Math.max(300, 1000 - score / 15);
+            setTimeout(spawnEnemy, nextSpawn);
+        }
+
+        function spawnItem() {
+            if (!gameActive) return;
+            const type = Math.random() > 0.3 ? 'heal' : 'boost';
+            items.push({
+                x: canvas.width / 2 + (Math.random() - 0.5) * 600,
+                y: -100,
+                type: type,
+                pulse: 0
+            });
+            setTimeout(spawnItem, 3000 + Math.random() * 3000);
+        }
+
+        function startGame() {
+            startScreen.style.display = 'none';
+            gameActive = true;
+            score = 0;
+            player.hp = player.maxHp;
+            enemies = [];
+            items = [];
+            particles = [];
+            updateHPBar();
+            spawnEnemy();
+            spawnEnemy(); // 初始多生一個敵人
+            spawnItem();
+            requestAnimationFrame(update);
+        }
+
+        function updateHPBar() {
+            hpFill.style.width = (player.hp / player.maxHp * 100) + '%';
+        }
+
+        function update() {
+            if (!gameActive) return;
+
+            if (isBoosting) {
+                speed = baseSpeed * 2.5;
+                boostTimer--;
+                createExplosion(player.x, player.y + 35, '#00f2ff', 1);
+                if (boostTimer <= 0) {
+                    isBoosting = false;
+                    speed = baseSpeed;
+                    boostText.style.display = 'none';
+                }
+            }
+
+            roadOffset += speed;
+            if (roadOffset > 200) roadOffset = 0;
+
+            const moveSpeed = isBoosting ? 14 : 9;
+            if (keys['ArrowLeft'] && player.x > canvas.width / 2 - 300) player.x -= moveSpeed;
+            if (keys['ArrowRight'] && player.x < canvas.width / 2 + 300) player.x += moveSpeed;
+
+            if (player.attackTimer > 0) player.attackTimer--;
+            else player.attacking = null;
+
+            // 更新道具
+            items.forEach((item, index) => {
+                const itemSpeed = isBoosting ? speed * 0.5 : speed * 0.7;
+                item.y += itemSpeed;
+                item.pulse += 0.1;
+                const dist = Math.hypot(item.x - player.x, item.y - player.y);
+                if (dist < 70) {
+                    if (item.type === 'heal') {
+                        player.hp = Math.min(player.maxHp, player.hp + 25);
+                        updateHPBar();
+                        createExplosion(item.x, item.y, '#00ff00', 25);
+                    } else {
+                        isBoosting = true;
+                        boostTimer = 200;
+                        boostText.style.display = 'block';
+                        createExplosion(item.x, item.y, '#00f2ff', 25);
+                    }
+                    items.splice(index, 1);
+                }
+                if (item.y > canvas.height + 100) items.splice(index, 1);
+            });
+
+            // 更新敵人
+            enemies.forEach((enemy, index) => {
+                enemy.y += isBoosting ? speed - 2 : enemy.speed;
+                
+                if (enemy.stunned > 0) {
+                    enemy.stunned--;
+                } else {
+                    if (enemy.y > -50 && enemy.y < player.y + 150) {
+                        const targetDx = player.x - enemy.x;
+                        enemy.vx += (targetDx > 0 ? 0.8 : -0.8);
+                    }
+                }
+
+                enemy.vx *= 0.93;
+                enemy.x += enemy.vx;
+
+                const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+                
+                if (isBoosting && dist < 70) {
+                    enemy.hp = 0;
+                } else if (dist < 55) {
+                    player.hp -= 0.5;
+                    updateHPBar();
+                    if (player.hp <= 0) endGame();
+                    const push = (player.x - enemy.x > 0 ? -4 : 4);
+                    enemy.vx += push;
+                    player.x -= push;
+                }
+
+                if (enemy.hp <= 0) {
+                    score += 150;
+                    scoreElement.innerText = score;
+                    createExplosion(enemy.x, enemy.y, '#ffaa00', 25);
+                    enemies.splice(index, 1);
+                }
+                if (enemy.y > canvas.height + 200) enemies.splice(index, 1);
+            });
+
+            particles.forEach((p, index) => {
+                p.x += p.vx; p.y += p.vy; p.life -= 0.025;
+                if (p.life <= 0) particles.splice(index, 1);
+            });
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const centerX = canvas.width / 2;
+
+            // 背景
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 路肩
+            ctx.fillStyle = isBoosting ? '#051111' : '#1a2e1a';
+            ctx.beginPath();
+            ctx.moveTo(centerX - 600, canvas.height);
+            ctx.lineTo(centerX - 300, 0);
+            ctx.lineTo(centerX + 300, 0);
+            ctx.lineTo(centerX + 600, canvas.height);
+            ctx.fill();
+
+            // 公路
+            ctx.fillStyle = isBoosting ? '#0c0c1a' : '#222';
+            ctx.beginPath();
+            ctx.moveTo(centerX - 350, canvas.height);
+            ctx.lineTo(centerX - 250, 0);
+            ctx.lineTo(centerX + 250, 0);
+            ctx.lineTo(centerX + 350, canvas.height);
+            ctx.fill();
+
+            // 路面標線
+            ctx.strokeStyle = isBoosting ? '#00f2ff' : '#ffd700';
+            ctx.setLineDash([40, 60]);
+            ctx.lineDashOffset = -roadOffset;
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(centerX, canvas.height); ctx.lineTo(centerX, 0);
+            ctx.stroke();
+
+            // 白線
+            ctx.strokeStyle = '#fff';
+            ctx.setLineDash([]);
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(centerX - 300, canvas.height); ctx.lineTo(centerX - 220, 0);
+            ctx.moveTo(centerX + 300, canvas.height); ctx.lineTo(centerX + 220, 0);
+            ctx.stroke();
+
+            // 道具
+            items.forEach(item => {
+                const s = 1 + Math.sin(item.pulse) * 0.2;
+                ctx.save();
+                ctx.translate(item.x, item.y);
+                ctx.scale(s, s);
+                ctx.shadowBlur = 20;
+                if (item.type === 'heal') {
+                    ctx.fillStyle = '#00ff00';
+                    ctx.shadowColor = '#00ff00';
+                    ctx.fillRect(-18, -18, 36, 36);
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(-12, -4, 24, 8); ctx.fillRect(-4, -12, 8, 24);
+                } else {
+                    ctx.fillStyle = '#00f2ff';
+                    ctx.shadowColor = '#00f2ff';
+                    ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(18, 12); ctx.lineTo(-18, 12); ctx.fill();
+                }
+                ctx.restore();
+                ctx.shadowBlur = 0;
+            });
+
+            // 粒子
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+
+            // 敵人
+            enemies.forEach(enemy => {
+                ctx.save();
+                ctx.translate(enemy.x, enemy.y);
+                ctx.fillStyle = '#111'; ctx.fillRect(-12, -35, 24, 70);
+                ctx.fillStyle = '#1e40af'; ctx.fillRect(-14, -15, 28, 35);
+                ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, -20, 11, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#444'; ctx.fillRect(-20, -50, 40, 5);
+                ctx.fillStyle = '#ff0000'; ctx.fillRect(-20, -50, (enemy.hp / 100) * 40, 5);
+                ctx.restore();
+            });
+
+            // 玩家
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            if (isBoosting) { ctx.shadowBlur = 25; ctx.shadowColor = '#00f2ff'; }
+
+            const weaponColor = isBoosting ? '#00f2ff' : '#fbbf24';
+            if (player.attacking) {
+                ctx.fillStyle = weaponColor;
+                const angle = (player.attacking === 'left' ? -1 : 1) * (Math.PI / 2 - player.attackTimer * 0.1);
+                ctx.save(); ctx.rotate(angle); ctx.fillRect(player.attacking === 'left' ? -55 : 5, -5, 50, 10); ctx.restore();
+            } else {
+                ctx.fillStyle = '#4b2c20'; ctx.save(); ctx.rotate(0.3); ctx.fillRect(14, -10, 6, 30); ctx.restore();
+            }
+
+            ctx.fillStyle = isBoosting ? '#001a33' : '#000'; ctx.fillRect(-16, -45, 32, 90);
+            ctx.fillStyle = isBoosting ? '#00f2ff' : '#dc2626'; ctx.fillRect(-18, -25, 36, 45);
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -22, 14, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#111'; ctx.fillRect(-10, -25, 20, 7);
+            ctx.fillStyle = '#ff0000'; ctx.globalAlpha = 0.6; ctx.fillRect(-12, 40, 24, 5);
+            ctx.restore();
+        }
+
+        function endGame() {
+            gameActive = false;
+            gameOverScreen.style.display = 'block';
+            finalScoreElement.innerText = score;
+        }
+
+    </script>
+</body>
+</html>
